@@ -7,6 +7,49 @@ var os = require('os');
 var fs = require('fs');
 var async = require('async');
 
+// Removes a module from the cache
+function requireUncache (moduleName) {
+    // Run over the cache looking for the files
+    // loaded by the specified module name
+    requireSearchCache(moduleName, function (mod) {
+        delete require.cache[mod.id];
+    });
+
+    // Remove cached paths to the module.
+    // Thanks to @bentael for pointing this out.
+    Object.keys(module.constructor._pathCache).forEach(function (cacheKey) {
+        if (cacheKey.indexOf(moduleName) > 0) {
+            delete module.constructor._pathCache[cacheKey];
+        }
+    });
+};
+
+/**
+ * Runs over the cache to search for all the cached
+ * files
+ */
+function requireSearchCache (moduleName, callback) {
+    // Resolve the module identified by the specified name
+    var mod = require.resolve(moduleName);
+
+    // Check if the module has been resolved and found within
+    // the cache
+    if (mod && ((mod = require.cache[mod]) !== undefined)) {
+        // Recursively go over the results
+        (function run (mod) {
+            // Go over each of the module's children and
+            // run over it
+            mod.children.forEach(function (child) {
+                run(child);
+            });
+
+            // Call the specified callback providing the
+            // found module
+            callback(mod);
+        })(mod);
+    }
+};
+
 // A typical sass error looks like this
 var SassError = {
     message: 'invalid property name',
@@ -222,6 +265,19 @@ module.exports = function (content) {
         if ('sourceMapContents' in opt === false) {
             opt.sourceMapContents = true;
         }
+    }
+
+    // allow for custom sass functions to be required in
+    if (opt.functions) {
+        this.dependency(opt.functions);
+
+        requireSearchCache(opt.functions, function (mod) {
+            self.dependency(mod.id);
+        });
+
+        requireUncache(opt.functions);
+        var functions = require(opt.functions);
+        opt.functions = functions;
     }
 
     // indentedSyntax is a boolean flag
